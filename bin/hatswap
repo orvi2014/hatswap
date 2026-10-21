@@ -7,7 +7,7 @@
 # with ~/.claude by symlink; only the login and ~/.claude.json are per account.
 set -euo pipefail
 
-VERSION=0.7.0
+VERSION=0.8.0
 # hatswap was called claude-account until 0.5.0. The data folder keeps its
 # name because Claude Code keys each account's Keychain login to its path;
 # the old variable and pin-file names are still honoured.
@@ -46,12 +46,14 @@ Usage: hatswap <command> [name] [claude args...]
   codex-login <name>  sign an account in to Codex (its own CODEX_HOME)
   use <name> [args]   start Claude with that account (extra args go to claude);
                       --default also makes it the default for plain 'claude'
-  switch <account|main> [id] [--default]
+  switch <account|main> [id|--all] [--default]
                       continue the current conversation on that account. Run
                       inside Claude (! hatswap switch work, or /switch
                       work) it restarts the same tab in place when the tab is
                       in tmux; from another terminal it closes the session
                       where it is open and resumes it there
+                      --all moves every open session (sessions mid-task are
+                      skipped unless --force)
   default [name|main] show or set the account plain 'claude' starts with
   pin [name|main|--clear]
                       pin this folder (and everything below it) to an account:
@@ -369,7 +371,7 @@ EOF
 # it open (pane may be empty), or nothing.
 live_info() {
   python3 - "$MAIN" "$BASE" "$1" <<'PY'
-import glob, json, os, sys
+import glob, json, os, subprocess, sys
 main, base, sid = sys.argv[1:4]
 dirs = [main] + [d for d in glob.glob(os.path.join(base, "*")) if os.path.isdir(d)]
 for cfg in dirs:
@@ -378,6 +380,11 @@ for cfg in dirs:
             s = json.load(open(f))
             if s.get("sessionId") == sid:
                 os.kill(int(s["pid"]), 0)
+                if s.get("procStart"):
+                    # A stale registry file can point at a recycled PID; match its start time.
+                    started = subprocess.run(["ps", "-o", "lstart=", "-p", str(int(s["pid"]))], capture_output=True, text=True, env=dict(os.environ, TZ="UTC")).stdout
+                    if " ".join(started.split()) != " ".join(str(s["procStart"]).split()):
+                        raise ProcessLookupError
                 pane = str(s.get("tmux") or "").rsplit(".", 1)[-1]
                 if not pane.startswith("%"):
                     pane = os.environ.get("TMUX_PANE", "") if str(s["pid"]) == os.environ.get("CLAUDE_PID") else ""
@@ -385,6 +392,32 @@ for cfg in dirs:
         except Exception:
             pass
 PY
+}
+
+# live_sessions: one line per open session, "account<TAB>sid<TAB>status<TAB>cwd".
+live_sessions() {
+  python3 - "$MAIN" "$BASE" <<'PY2'
+import glob, json, os, subprocess, sys
+main, base = sys.argv[1:3]
+regs = [("main", main)] + [(os.path.basename(d), d) for d in sorted(glob.glob(os.path.join(base, "*"))) if os.path.isdir(d)]
+seen = set()
+for account, cfg in regs:
+    for f in glob.glob(os.path.join(cfg, "sessions", "*.json")):
+        try:
+            s = json.load(open(f))
+            os.kill(int(s["pid"]), 0)
+            if s.get("procStart"):
+                started = subprocess.run(["ps", "-o", "lstart=", "-p", str(int(s["pid"]))], capture_output=True, text=True, env=dict(os.environ, TZ="UTC")).stdout
+                if " ".join(started.split()) != " ".join(str(s["procStart"]).split()):
+                    continue
+        except Exception:
+            continue
+        sid = s.get("sessionId")
+        if not sid or sid in seen or s.get("kind", "interactive") != "interactive":
+            continue
+        seen.add(sid)
+        print("\t".join([account, sid, str(s.get("status") or "-"), str(s.get("cwd") or "")]))
+PY2
 }
 
 # is_descendant <pid> <ancestor>
@@ -402,7 +435,7 @@ is_descendant() {
 # from the tmux server after a short delay, so it works from inside the
 # session itself. Returns 1 when the session is not in a reachable tmux pane.
 switch_in_pane() {
-  local pid="$1" pane="$2" sid="$3" dir="$4" pane_pid start cmd jobs job self go
+  local pid="$1" pane="$2" sid="$3" dir="$4" pane_pid start own cmd jobs job self go
   [[ -n "$pane" ]] && command -v tmux >/dev/null || return 1
   pane_pid="$(tmux display -p -t "$pane" '#{pane_pid}' 2>/dev/null)" || return 1
   [[ -n "$pane_pid" ]] || return 1
@@ -411,11 +444,14 @@ switch_in_pane() {
   jobs="$BASE/.jobs"; mkdir -p "$jobs"; chmod 700 "$BASE" "$jobs"
   job="$(umask 077; mktemp "$jobs/switch-XXXXXX")"
   go="$job.go"
-  if [[ "$pane_pid" == "$pid" ]]; then
-    # Claude is the pane's own process (Clave and similar): rerun the pane's
-    # start command so its flags, hooks and MCP config are kept.
-    start="$(tmux display -p -t "$pane" '#{pane_start_command}')"
-    if [[ "$start" == *"--session-id $sid"* ]]; then
+  start="$(tmux display -p -t "$pane" '#{pane_start_command}' 2>/dev/null)"
+  own=0; [[ "$start" == *"--session-id $sid"* || "$start" == *"--resume $sid"* ]] && own=1
+  if [[ "$pane_pid" == "$pid" ]] ||
+     [[ "$own" == 1 && "$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')" == "$pane_pid" ]]; then
+    # Claude is the pane's own process, or the child of a `zsh -l -c` wrapper
+    # (Clave and similar): rerun the pane's start command so its flags, hooks
+    # and MCP config are kept.
+    if [[ "$own" == 1 ]]; then
       cmd="${start/--session-id $sid/--resume $sid}"
       local e=() a; while IFS= read -r a; do e+=("$(printf %q "$a")"); done < <(account_env "$dir")
       cmd="env ${e[*]} $cmd"
@@ -1172,7 +1208,7 @@ config_dir_of() {
 # "main" for the shared history, or the name of a private account.
 session_table() {
   python3 - "$MAIN" "$BASE" "$PWD" "${1:-15}" <<'PY'
-import glob, json, os, re, sys, time
+import glob, json, os, re, subprocess, sys, time
 main, base, cwd, limit = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4])
 registries = {"main": main}
 for d in sorted(glob.glob(os.path.join(base, "*"))):
@@ -1191,6 +1227,11 @@ for account, cfg in registries.items():
         try:
             s = json.load(open(f))
             os.kill(int(s["pid"]), 0)
+            if s.get("procStart"):
+                # A stale registry file can point at a recycled PID; match its start time.
+                started = subprocess.run(["ps", "-o", "lstart=", "-p", str(int(s["pid"]))], capture_output=True, text=True, env=dict(os.environ, TZ="UTC")).stdout
+                if " ".join(started.split()) != " ".join(str(s["procStart"]).split()):
+                    raise ProcessLookupError
         except Exception:
             continue
         live[s.get("sessionId")] = account
@@ -1612,7 +1653,7 @@ seed_prompt() {
 # (cd into a worktree), but --resume only finds a session from that folder.
 session_home() {
   python3 - "$MAIN" "$BASE" "$1" <<'PY'
-import glob, json, os, sys
+import glob, json, os, subprocess, sys
 main, base, sid = sys.argv[1:4]
 dirs = [main] + [d for d in glob.glob(os.path.join(base, "*")) if os.path.isdir(d)]
 for cfg in dirs:
@@ -1713,7 +1754,7 @@ case "$cmd" in
     ;;
   refresh|handoff|switch)
     if [[ "$cmd" == switch ]]; then
-      to="${1:?usage: hatswap switch <account|main> [session-id] [--default] [--yes]}"; shift
+      to="${1:?usage: hatswap switch <account|main> [session-id|--all [--force]] [--default] [--yes]}"; shift
       [[ "$to" == codex ]] && { echo "switch moves a conversation between Claude accounts; for Codex use: handoff codex" >&2; exit 1; }
     elif [[ "$cmd" == handoff ]]; then
       to="${1:?usage: hatswap handoff <account|main|codex> [session-id] [--fork|--brief|--from file] [--edit] [--model m] [--no-repo]}"; shift
@@ -1721,11 +1762,13 @@ case "$cmd" in
       to=""
     fi
     warn_stale_commands
-    sid=""; fork=0; brief=0; edit=0; from=""; make_default=0; yes=0; codex_as=""; CODEX_ACCOUNT_DIR=""; BRIEF_MODEL=sonnet; BRIEF_REPO=1
+    sid=""; fork=0; brief=0; edit=0; from=""; make_default=0; yes=0; all=0; force=0; codex_as=""; CODEX_ACCOUNT_DIR=""; BRIEF_MODEL=sonnet; BRIEF_REPO=1
     while [[ $# -gt 0 ]]; do
       case "$1" in
         --default) make_default=1; shift ;;
         --yes|-y) yes=1; shift ;;
+        --all) all=1; shift ;;
+        --force) force=1; shift ;;
         --fork) fork=1; shift ;;
         --brief) brief=1; shift ;;
         --edit) edit=1; brief=1; shift ;;
@@ -1754,6 +1797,26 @@ case "$cmd" in
     if [[ "$make_default" == 1 ]]; then
       [[ -n "$to" && "$to" != codex ]] || { echo "--default needs an account name" >&2; exit 1; }
       set_default "$to"
+    fi
+    if [[ "$all" == 1 ]]; then
+      [[ "$cmd" == switch && -z "$sid" ]] || { echo "--all is for switch, without a session id" >&2; exit 1; }
+      # Every open session not already on $to, each restarted in its own tab.
+      # A session mid-task is skipped unless --force: restarting it stops that task.
+      moved=0; left=0
+      while IFS=$'\t' read -r acct s st cwd; do
+        [[ "$(config_dir_of "$acct")" == "$dir" ]] && continue
+        if [[ "$st" == busy && "$force" != 1 ]]; then
+          echo "Skipped $s in ${cwd/#$HOME/~} ($acct): busy. Run again when it is idle, or add --force."
+          left=$((left + 1)); continue
+        fi
+        if ( cd "$cwd" 2>/dev/null || exit 1; "$0" switch "$to" "$s" --yes </dev/null ) | sed "s|^|${cwd/#$HOME/~}: |"; then
+          moved=$((moved + 1))
+        else
+          left=$((left + 1))
+        fi
+      done < <(live_sessions)
+      echo "Moved $moved open session(s) to '$to'$( [[ "$left" -gt 0 ]] && echo "; $left left where they are")."
+      exit 0
     fi
     # Run from inside Claude, switch acts on that very session.
     [[ "$cmd" == switch && -z "$sid" && -n "${CLAUDE_CODE_SESSION_ID:-}" ]] && sid="$CLAUDE_CODE_SESSION_ID"

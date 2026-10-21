@@ -8,11 +8,23 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-22
+
 ### Added
 - A Claude Code plugin, from this repository's own marketplace:
   `/plugin marketplace add orvi2014/hatswap`, then
   `/plugin install hatswap@hatswap`. It gives `/hatswap:switch`,
   `/hatswap:handoff` and `/hatswap:accounts`, and needs the CLI installed.
+- `switch <account> --all` moves every open session to that account, each in
+  its own tab. Sessions in the middle of a task are skipped unless `--force`.
+
+### Fixed
+- `switch` restarts a tab in place when Claude runs under a `zsh -l -c`
+  wrapper, as Clave now starts it, including tabs started with `--resume`.
+  Before, it stopped Claude and typed the resume command into a shell that
+  had already exited.
+- A stale session file whose PID now belongs to another program no longer
+  counts as an open session.
 
 ## [0.7.0] - 2026-10-13
 
@@ -199,7 +211,8 @@ All notable changes to this project are documented here. The format follows
 - `/handoff` slash command via `install-command`; `save-brief`, `briefs`.
 - Secret redaction in condensed transcripts.
 
-[Unreleased]: https://github.com/orvi2014/hatswap/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/orvi2014/hatswap/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/orvi2014/hatswap/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/orvi2014/hatswap/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/orvi2014/hatswap/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/orvi2014/hatswap/compare/v0.4.2...v0.5.0

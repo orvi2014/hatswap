@@ -216,6 +216,7 @@ Inside Claude Code:
 ```text
 ! hatswap switch work            # or /switch work (after install-command)
 ! hatswap switch work --default  # also make "work" the default for new sessions
+hatswap switch work --all         # move every open session (busy ones are skipped unless --force)
 ```
 
 A running Claude Code process cannot change its login, so `switch` restarts it: the same conversation (full history, same ID) resumes on the other account, in the **same tab**:

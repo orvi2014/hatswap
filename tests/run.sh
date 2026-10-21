@@ -135,6 +135,11 @@ echo "{\"pid\":$LIVE,\"sessionId\":\"22222222-2222-2222-2222-222222222222\",\"cw
 ok "sessions marks the open one live" '[[ "$("$BIN" sessions | grep 22222222)" == live* ]]'
 ok "handoff refuses a live session" '[[ "$(tty_run "$BIN" handoff work)" == *"still open"* ]]'
 kill $LIVE 2>/dev/null
+echo "{\"pid\":$LIVE,\"sessionId\":\"22222222-2222-2222-2222-222222222222\",\"cwd\":\"$T/work\",\"procStart\":\"Mon Jan  1 00:00:00 2001\"}" > "$HOME/.claude/sessions/$LIVE.json"
+sleep 600 & LIVE=$!
+sed -i.bak "s/\"pid\":[0-9]*/\"pid\":$LIVE/" "$HOME/.claude/sessions/"*.json; rm -f "$HOME/.claude/sessions/"*.bak
+ok "a registry file whose PID was reused is not live" '[[ "$("$BIN" sessions | grep 22222222)" == closed* ]]'
+kill $LIVE 2>/dev/null; rm -f "$HOME/.claude/sessions/"*.json
 
 # default account
 ok "default starts as main" '[[ "$("$BIN" default)" == main ]]'
@@ -251,6 +256,29 @@ rm -f "$FAKE_LOG.tmux"
 FAKE_PANE_PID=$SHELLPID CLAUDE_CODE_SESSION_ID=$SID "$BIN" switch work </dev/null >/dev/null 2>&1
 ok "switch under a pane shell stops claude and types the resume" '! kill -0 $LIVE 2>/dev/null && grep -q "send-keys -t %9 -l .*work --resume $SID" "$FAKE_LOG.tmux"'
 kill $SHELLPID 2>/dev/null; rm -f "$HOME/.claude/sessions/$LIVE.json"
+
+# claude started by a `zsh -l -c` wrapper that is the pane's process (Clave)
+bash -c 'sleep 600 & echo $! > "$0"; wait' "$T/child" & SHELLPID=$!
+sleep 0.5; LIVE=$(cat "$T/child")
+echo "{\"pid\":$LIVE,\"sessionId\":\"$SID\",\"cwd\":\"$T/work\",\"tmux\":\"s:@1.%9\"}" > "$HOME/.claude/sessions/$LIVE.json"
+rm -f "$FAKE_LOG.tmux"
+out="$(FAKE_PANE_PID=$SHELLPID FAKE_START="claude --session-id $SID --keep-flag x" CLAUDE_CODE_SESSION_ID=$SID "$BIN" switch work 2>&1 </dev/null)"
+ok "switch under a start-command wrapper respawns the pane" '[[ "$out" == *"This tab restarts"* ]] && grep -q "respawn-pane -k -t %9" "$FAKE_LOG.tmux" && grep -q "CONFIG=$CLAUDE_ACCOUNTS_DIR/work ARGS=--resume $SID --keep-flag x" "$FAKE_LOG.tmux" && ! grep -q send-keys "$FAKE_LOG.tmux"'
+rm -f "$FAKE_LOG.tmux"
+FAKE_PANE_PID=$SHELLPID FAKE_START="claude --resume $SID --keep-flag y" CLAUDE_CODE_SESSION_ID=$SID "$BIN" switch work </dev/null >/dev/null 2>&1
+ok "switch under a wrapper started with --resume respawns the pane" 'grep -q "CONFIG=$CLAUDE_ACCOUNTS_DIR/work ARGS=--resume $SID --keep-flag y" "$FAKE_LOG.tmux" && ! grep -q send-keys "$FAKE_LOG.tmux"'
+kill $SHELLPID $LIVE 2>/dev/null; rm -f "$HOME/.claude/sessions/$LIVE.json"
+
+# switch --all: every open session moves; a busy one is skipped
+sleep 600 & LIVE=$!
+sleep 600 & BUSY=$!
+echo "{\"pid\":$LIVE,\"sessionId\":\"$SID\",\"cwd\":\"$T/work\",\"tmux\":\"s:@1.%9\",\"status\":\"idle\"}" > "$HOME/.claude/sessions/$LIVE.json"
+echo "{\"pid\":$BUSY,\"sessionId\":\"11111111-1111-1111-1111-111111111111\",\"cwd\":\"$T/work\",\"tmux\":\"s:@2.%8\",\"status\":\"busy\"}" > "$HOME/.claude/sessions/$BUSY.json"
+rm -f "$FAKE_LOG.tmux"
+out="$(FAKE_PANE_PID=$LIVE FAKE_START="claude --session-id $SID" "$BIN" switch work --all 2>&1 </dev/null)"
+ok "switch --all restarts open sessions on the target" 'grep -q "CONFIG=$CLAUDE_ACCOUNTS_DIR/work ARGS=--resume $SID" "$FAKE_LOG.tmux" && [[ "$out" == *"Moved 1 open session"* ]]'
+ok "switch --all skips a busy session" '[[ "$out" == *"Skipped 11111111"*"busy"* ]] && ! grep -q "respawn-pane -k -t %8" "$FAKE_LOG.tmux"'
+kill $LIVE $BUSY 2>/dev/null; rm -f "$HOME/.claude/sessions/$LIVE.json" "$HOME/.claude/sessions/$BUSY.json"
 
 # no tmux: explain what to do
 sleep 600 & LIVE=$!
