@@ -5,6 +5,7 @@ The mark is two top hats, one upside down, turned around the same centre: one ha
 | File | Use |
 |---|---|
 | `hatswap-lockup-light.svg` / `hatswap-lockup-dark.svg` | Mark and wordmark, for light and dark backgrounds |
+| `hatswap-lockup-tile.svg` / `hatswap-lockup-tile-dark.svg` | The lockup on its own ivory or slate tile, readable on any background, for viewers whose reported theme does not match their background (the README header uses them) |
 | `hatswap-mark-light.svg` / `hatswap-mark-dark.svg` | The mark alone |
 | `hatswap-mark-mono.svg` / `hatswap-mark-white.svg` | One colour, for places that cannot use orange |
 | `app-icon.svg`, `app-icon-512.png`, `apple-touch-icon.png` | The mark on a rounded dark tile |

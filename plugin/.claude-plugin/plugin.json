@@ -1,7 +1,7 @@
 {
   "name": "hatswap",
   "description": "Slash commands for hatswap: continue a conversation on another Claude account, hand a session off with a brief, and see each account's usage. Needs the hatswap CLI.",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "author": {
     "name": "orvi2014",
     "url": "https://github.com/orvi2014"

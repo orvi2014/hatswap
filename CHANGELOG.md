@@ -8,6 +8,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-10-22
+
+### Fixed
+- The README logo was unreadable in viewers whose background does not match
+  the light or dark theme they report, such as some editor and app previews.
+  The header now uses the lockup on its own ivory or slate tile
+  (`docs/brand/hatswap-lockup-tile.svg`, `hatswap-lockup-tile-dark.svg`).
+
 ## [0.8.0] - 2026-10-22
 
 ### Added
@@ -211,7 +219,8 @@ All notable changes to this project are documented here. The format follows
 - `/handoff` slash command via `install-command`; `save-brief`, `briefs`.
 - Secret redaction in condensed transcripts.
 
-[Unreleased]: https://github.com/orvi2014/hatswap/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/orvi2014/hatswap/compare/v0.8.1...HEAD
+[0.8.1]: https://github.com/orvi2014/hatswap/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/orvi2014/hatswap/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/orvi2014/hatswap/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/orvi2014/hatswap/compare/v0.5.0...v0.6.0

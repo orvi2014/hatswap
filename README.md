@@ -1,7 +1,7 @@
 <h1 align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/hatswap-lockup-dark.svg">
-    <img src="docs/brand/hatswap-lockup-light.svg" alt="hatswap" height="72">
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/hatswap-lockup-tile-dark.svg">
+    <img src="docs/brand/hatswap-lockup-tile.svg" alt="hatswap" height="90">
   </picture>
 </h1>
 
